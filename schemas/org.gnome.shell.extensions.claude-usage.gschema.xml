@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.claude-usage" path="/org/gnome/shell/extensions/claude-usage/">
+    <key name="session-key" type="s">
+      <default>''</default>
+      <summary>Session Key</summary>
+      <description>The sessionKey cookie from claude.ai</description>
+    </key>
+    <key name="organization-id" type="s">
+      <default>''</default>
+      <summary>Organization ID</summary>
+      <description>Your Claude organization UUID</description>
+    </key>
+    <key name="update-interval" type="i">
+      <default>10</default>
+      <summary>Update Interval</summary>
+      <description>How often to fetch usage data from the API (in minutes)</description>
+      <range min="1" max="60"/>
+    </key>
+  </schema>
+</schemalist>

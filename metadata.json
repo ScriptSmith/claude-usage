@@ -1,0 +1,9 @@
+{
+  "uuid": "claude-usage@local",
+  "name": "Claude Usage",
+  "description": "Shows Claude AI usage stats in the top bar",
+  "version": 1,
+  "shell-version": ["45", "46", "47", "48", "49"],
+  "settings-schema": "org.gnome.shell.extensions.claude-usage",
+  "url": "https://github.com/ScriptSmith/claude-usage"
+}

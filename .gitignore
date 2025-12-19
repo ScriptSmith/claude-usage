@@ -1,0 +1,23 @@
+# Compiled GSettings schemas
+schemas/gschemas.compiled
+
+# Editor backups
+*~
+*.swp
+*.swo
+.*.swp
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak

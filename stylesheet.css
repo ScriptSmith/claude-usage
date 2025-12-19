@@ -1,0 +1,27 @@
+.claude-usage-box {
+    spacing: 4px;
+}
+
+.claude-usage-box .warning {
+    color: #f5a623;
+}
+
+.claude-usage-box .danger {
+    color: #e74c3c;
+}
+
+.claude-status {
+    min-width: 60px;
+}
+
+.claude-session-usage {
+    min-width: 50px;
+}
+
+.claude-weekly-usage {
+    min-width: 50px;
+}
+
+.claude-time-remaining {
+    min-width: 45px;
+}
