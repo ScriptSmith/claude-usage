@@ -20,6 +20,8 @@ A GNOME Shell extension that displays Claude AI usage statistics and Claude Code
 
 ## Screenshots
 
+![Screenshot](screenshot.png)
+
 **Top bar display:**
 ```
 Thinking  S: 45%  W: 23%  4h 32m
