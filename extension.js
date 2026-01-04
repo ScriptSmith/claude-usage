@@ -393,6 +393,30 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         }
     }
 
+    _formatAbsoluteDateTime(isoDate) {
+        if (!isoDate) return '--';
+        try {
+            const date = new Date(isoDate);
+            const now = new Date();
+
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            const time = `${hours}:${minutes}`;
+
+            // If it's today, just show time
+            if (date.toDateString() === now.toDateString()) {
+                return time;
+            }
+
+            // Otherwise show day and time
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const dayName = days[date.getDay()];
+            return `${dayName} ${time}`;
+        } catch (e) {
+            return '--';
+        }
+    }
+
     _formatMs(ms) {
         if (ms < 1000) {
             return `${ms}ms`;
@@ -543,12 +567,15 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         const sessionTime = this._formatTimeRemaining(sessionResets);
         this._timeLabel.set_text(sessionTime);
 
-        // Update menu items
+        // Update menu items with reset times (relative and absolute)
+        const sessionResetAbsolute = this._formatAbsoluteDateTime(sessionResets);
+        const weeklyResetAbsolute = this._formatAbsoluteDateTime(weeklyResets);
+
         this._apiSessionMenuItem.label.set_text(
-            `Session: ${Math.round(sessionUtil)}% (resets in ${sessionTime})`
+            `Session: ${Math.round(sessionUtil)}% (resets in ${sessionTime} at ${sessionResetAbsolute})`
         );
         this._weeklyMenuItem.label.set_text(
-            `Weekly: ${Math.round(weeklyUtil)}% (resets in ${this._formatTimeRemaining(weeklyResets)})`
+            `Weekly: ${Math.round(weeklyUtil)}% (resets in ${this._formatTimeRemaining(weeklyResets)} at ${weeklyResetAbsolute})`
         );
 
         // Update last updated timestamp
