@@ -25,3 +25,46 @@
 .claude-time-remaining {
     min-width: 45px;
 }
+
+/* Reset time row - compact spacing */
+.claude-reset-item {
+    padding-top: 0;
+    padding-bottom: 4px;
+    min-height: 0;
+}
+
+/* Reset time label - smaller and dimmer */
+.claude-reset-label {
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* Progress bar row - compact spacing */
+.claude-progress-item {
+    padding-top: 0;
+    padding-bottom: 8px;
+    min-height: 0;
+}
+
+/* Progress bar styles */
+.claude-progress-container {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    height: 6px;
+    width: 200px;
+}
+
+.claude-progress-bar {
+    background-color: #3584e4;
+    border-radius: 4px;
+    height: 6px;
+    transition-duration: 200ms;
+}
+
+.claude-progress-bar.warning {
+    background-color: #f5a623;
+}
+
+.claude-progress-bar.danger {
+    background-color: #e74c3c;
+}

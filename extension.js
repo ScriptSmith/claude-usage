@@ -127,14 +127,54 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(usageHeader);
 
         // Session details
-        this._apiSessionMenuItem = new PopupMenu.PopupMenuItem('Session: --% (resets in --)');
+        this._apiSessionMenuItem = new PopupMenu.PopupMenuItem('Session: --%');
         this._apiSessionMenuItem.setSensitive(false);
         this.menu.addMenuItem(this._apiSessionMenuItem);
 
+        // Session reset time
+        this._sessionResetMenuItem = new PopupMenu.PopupMenuItem('resets in --');
+        this._sessionResetMenuItem.setSensitive(false);
+        this._sessionResetMenuItem.add_style_class_name('claude-reset-item');
+        this._sessionResetMenuItem.label.add_style_class_name('claude-reset-label');
+        this.menu.addMenuItem(this._sessionResetMenuItem);
+
+        // Session progress bar
+        this._sessionProgressItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+        this._sessionProgressItem.add_style_class_name('claude-progress-item');
+        this._sessionProgressContainer = new St.BoxLayout({
+            style_class: 'claude-progress-container',
+        });
+        this._sessionProgressBar = new St.Widget({
+            style_class: 'claude-progress-bar',
+        });
+        this._sessionProgressContainer.add_child(this._sessionProgressBar);
+        this._sessionProgressItem.add_child(this._sessionProgressContainer);
+        this.menu.addMenuItem(this._sessionProgressItem);
+
         // Weekly details
-        this._weeklyMenuItem = new PopupMenu.PopupMenuItem('Weekly: --% (resets in --)');
+        this._weeklyMenuItem = new PopupMenu.PopupMenuItem('Weekly: --%');
         this._weeklyMenuItem.setSensitive(false);
         this.menu.addMenuItem(this._weeklyMenuItem);
+
+        // Weekly reset time
+        this._weeklyResetMenuItem = new PopupMenu.PopupMenuItem('resets in --');
+        this._weeklyResetMenuItem.setSensitive(false);
+        this._weeklyResetMenuItem.add_style_class_name('claude-reset-item');
+        this._weeklyResetMenuItem.label.add_style_class_name('claude-reset-label');
+        this.menu.addMenuItem(this._weeklyResetMenuItem);
+
+        // Weekly progress bar
+        this._weeklyProgressItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+        this._weeklyProgressItem.add_style_class_name('claude-progress-item');
+        this._weeklyProgressContainer = new St.BoxLayout({
+            style_class: 'claude-progress-container',
+        });
+        this._weeklyProgressBar = new St.Widget({
+            style_class: 'claude-progress-bar',
+        });
+        this._weeklyProgressContainer.add_child(this._weeklyProgressBar);
+        this._weeklyProgressItem.add_child(this._weeklyProgressContainer);
+        this.menu.addMenuItem(this._weeklyProgressItem);
 
         // Last updated
         this._lastUpdatedMenuItem = new PopupMenu.PopupMenuItem('Last updated: --');
@@ -437,6 +477,25 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         return tokens.toString();
     }
 
+    _updateProgressBar(progressBar, percentage) {
+        // Clamp percentage between 0 and 100
+        const clamped = Math.max(0, Math.min(100, percentage));
+
+        // Use fixed width matching CSS (200px container)
+        const barWidth = Math.round(200 * clamped / 100);
+        progressBar.set_width(barWidth);
+
+        // Update color classes
+        progressBar.remove_style_class_name('warning');
+        progressBar.remove_style_class_name('danger');
+
+        if (clamped >= 90) {
+            progressBar.add_style_class_name('danger');
+        } else if (clamped >= 75) {
+            progressBar.add_style_class_name('warning');
+        }
+    }
+
     _startUpdateLoop() {
         // Fetch data based on configurable interval (stored in minutes)
         const intervalMinutes = this._settings.get_int('update-interval') || DEFAULT_UPDATE_INTERVAL;
@@ -563,6 +622,10 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             this._weeklyLabel.add_style_class_name('warning');
         }
 
+        // Update progress bars
+        this._updateProgressBar(this._sessionProgressBar, sessionUtil);
+        this._updateProgressBar(this._weeklyProgressBar, weeklyUtil);
+
         // Show time until session reset (shorter window = more urgent)
         const sessionTime = this._formatTimeRemaining(sessionResets);
         this._timeLabel.set_text(sessionTime);
@@ -571,12 +634,11 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         const sessionResetAbsolute = this._formatAbsoluteDateTime(sessionResets);
         const weeklyResetAbsolute = this._formatAbsoluteDateTime(weeklyResets);
 
-        this._apiSessionMenuItem.label.set_text(
-            `Session: ${Math.round(sessionUtil)}% (resets in ${sessionTime} at ${sessionResetAbsolute})`
-        );
-        this._weeklyMenuItem.label.set_text(
-            `Weekly: ${Math.round(weeklyUtil)}% (resets in ${this._formatTimeRemaining(weeklyResets)} at ${weeklyResetAbsolute})`
-        );
+        this._apiSessionMenuItem.label.set_text(`Session: ${Math.round(sessionUtil)}%`);
+        this._sessionResetMenuItem.label.set_text(`resets in ${sessionTime} at ${sessionResetAbsolute}`);
+
+        this._weeklyMenuItem.label.set_text(`Weekly: ${Math.round(weeklyUtil)}%`);
+        this._weeklyResetMenuItem.label.set_text(`resets in ${this._formatTimeRemaining(weeklyResets)} at ${weeklyResetAbsolute}`);
 
         // Update last updated timestamp
         if (this._lastUpdated) {
