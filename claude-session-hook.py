@@ -33,15 +33,13 @@ def read_state():
     }
 
 def write_state(state):
-    """Atomically write state to file."""
+    """Write state to file with exclusive lock."""
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp_file = STATE_FILE.with_suffix('.tmp')
-    with open(tmp_file, 'w') as f:
+    with open(STATE_FILE, 'w') as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         json.dump(state, f, indent=2, default=str)
         f.flush()
         os.fsync(f.fileno())
-    tmp_file.rename(STATE_FILE)
 
 def get_session(state, session_id):
     """Get or create session entry."""
