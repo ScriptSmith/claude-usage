@@ -55,7 +55,8 @@ Ready     S: 45%  W: 23%  4h 32m
 ### 1. Install the GNOME Extension
 
 ```bash
-cd /path/to/claude-usage
+git clone https://github.com/ScriptSmith/claude-usage.git
+cd claude-usage
 ./install.sh
 ```
 
