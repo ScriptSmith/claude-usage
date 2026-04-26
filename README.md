@@ -45,7 +45,7 @@ Ready     S: 45%  W: 23%  4h 32m
 
 ## Requirements
 
-- GNOME Shell 45, 46, 47, 48, or 49
+- GNOME Shell 45, 46, 47, 48, 49, or 50
 - Python 3 (for Claude Code hooks)
 - Claude Pro/Team subscription (for API usage stats)
 - Claude Code CLI (for session tracking)

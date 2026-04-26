@@ -87,4 +87,4 @@ glib-compile-schemas ~/.local/share/gnome-shell/extensions/claude-usage@local/sc
 - Uses GJS imports: GLib, GObject, Gio, Soup (v3.0), St, Clutter
 - Extension must export `enable()` and `disable()` functions
 - Preferences use libadwaita (Adw) widgets
-- Supports GNOME Shell versions 45-49
+- Supports GNOME Shell versions 45-50
