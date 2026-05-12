@@ -31,7 +31,9 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._countdownTimeoutId = null;
         this._fileMonitor = null;
         this._lastUpdated = null;
+        this._extraUsageItems = [];
         this._lastError = null;
+        this._rateLimitedUntil = null;
 
         // Create main box for the panel
         this._box = new St.BoxLayout({
@@ -85,11 +87,6 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._setupSessionStateMonitor();
         this._loadSessionState();
         this._startUpdateLoop();
-
-        // Fetch usage data if there's already an active session
-        if (this._hasActiveSession()) {
-            this._fetchUsageData();
-        }
     }
 
     _buildMenu() {
@@ -537,6 +534,11 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             return;
         }
 
+        // Respect Retry-After from a previous 429
+        if (this._rateLimitedUntil && new Date() < this._rateLimitedUntil) {
+            return;
+        }
+
         const token = readOAuthToken();
 
         if (!token) {
@@ -560,6 +562,18 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
                 try {
                     const bytes = session.send_and_read_finish(result);
 
+                    if (message.status_code === 429) {
+                        const retryAfter = message.response_headers.get_one('retry-after');
+                        const seconds = retryAfter ? parseInt(retryAfter, 10) : 300;
+                        this._rateLimitedUntil = new Date(Date.now() + seconds * 1000);
+                        const h = this._rateLimitedUntil.getHours().toString().padStart(2, '0');
+                        const m = this._rateLimitedUntil.getMinutes().toString().padStart(2, '0');
+                        const errorMsg = `Rate limited until ${h}:${m}`;
+                        console.error(`Claude Usage: ${errorMsg}`);
+                        this._setError(errorMsg);
+                        return;
+                    }
+
                     if (message.status_code !== 200) {
                         const errorMsg = message.status_code === 401
                             ? 'Token expired — run `claude auth login`'
@@ -568,6 +582,8 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
                         this._setError(errorMsg);
                         return;
                     }
+
+                    this._rateLimitedUntil = null;
 
                     const decoder = new TextDecoder('utf-8');
                     const text = decoder.decode(bytes.get_data());
@@ -642,6 +658,44 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
         this._weeklyMenuItem.label.set_text(`Weekly: ${Math.round(weeklyUtil)}%`);
         this._weeklyResetMenuItem.label.set_text(`resets in ${this._formatTimeRemaining(weeklyResets)} at ${weeklyResetAbsolute}`);
+
+        // Rebuild dynamic items for extra usage types
+        for (const item of this._extraUsageItems)
+            item.destroy();
+        this._extraUsageItems = [];
+
+        const USAGE_NAMES = {
+            seven_day_opus: 'Opus (7-day)',
+            seven_day_sonnet: 'Sonnet (7-day)',
+            seven_day_cowork: 'Claude Cowork (7-day)',
+            seven_day_oauth_apps: 'OAuth Apps (7-day)',
+            seven_day_omelette: 'Claude Design (7-day)',
+            tangelo: 'Tangelo',
+            iguana_necktie: 'Iguana Necktie',
+            omelette_promotional: 'Claude Design Promo',
+        };
+        const SKIP_KEYS = new Set(['five_hour', 'seven_day', 'extra_usage']);
+        const insertPos = this.menu._getMenuItems().indexOf(this._lastUpdatedMenuItem);
+
+        for (const [key, data] of Object.entries(this._usageData)) {
+            if (SKIP_KEYS.has(key) || !data || data.utilization === null || data.utilization === undefined)
+                continue;
+            const name = USAGE_NAMES[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            const item = new PopupMenu.PopupMenuItem(`${name}: ${Math.round(data.utilization)}%`);
+            item.setSensitive(false);
+            this.menu.addMenuItem(item, insertPos + this._extraUsageItems.length);
+            this._extraUsageItems.push(item);
+        }
+
+        const extra = this._usageData.extra_usage;
+        if (extra?.is_enabled && extra.utilization !== null) {
+            const item = new PopupMenu.PopupMenuItem(
+                `Extra: ${Math.round(extra.utilization)}% (${extra.used_credits}/${extra.monthly_limit} ${extra.currency})`
+            );
+            item.setSensitive(false);
+            this.menu.addMenuItem(item, insertPos + this._extraUsageItems.length);
+            this._extraUsageItems.push(item);
+        }
 
         // Update last updated timestamp
         if (this._lastUpdated) {
