@@ -11,6 +11,8 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import { readOAuthToken } from './credentials.js';
+
 const DEFAULT_UPDATE_INTERVAL = 10; // 10 minutes (stored as minutes in settings)
 const COUNTDOWN_INTERVAL = 1; // 1 second
 const SESSION_STATE_PATH = GLib.build_filenamev([GLib.get_home_dir(), '.claude', 'session-state.json']);
@@ -29,7 +31,9 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._countdownTimeoutId = null;
         this._fileMonitor = null;
         this._lastUpdated = null;
+        this._extraUsageItems = [];
         this._lastError = null;
+        this._rateLimitedUntil = null;
 
         // Create main box for the panel
         this._box = new St.BoxLayout({
@@ -84,10 +88,12 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._loadSessionState();
         this._startUpdateLoop();
 
-        // Fetch usage data if there's already an active session
-        if (this._hasActiveSession()) {
-            this._fetchUsageData();
-        }
+        // Switching source must clear the cooldown from the previous endpoint
+        // so the new one isn't blocked by a stale rate-limit deadline.
+        this._sourceChangedId = this._settings.connect('changed::usage-source', () => {
+            this._rateLimitedUntil = null;
+            this._fetchUsageData(true);
+        });
     }
 
     _buildMenu() {
@@ -535,21 +541,34 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             return;
         }
 
-        const sessionKey = this._settings.get_string('session-key');
-        const orgId = this._settings.get_string('organization-id');
+        // Respect Retry-After from a previous 429
+        if (this._rateLimitedUntil && new Date() < this._rateLimitedUntil) {
+            return;
+        }
 
-        if (!sessionKey || !orgId) {
+        const token = readOAuthToken();
+
+        if (!token) {
             this._sessionLabel.set_text('S: N/A');
             this._weeklyLabel.set_text('W: N/A');
             this._timeLabel.set_text('Login');
             return;
         }
 
-        const url = `https://claude.ai/api/organizations/${orgId}/usage`;
-        const message = Soup.Message.new('GET', url);
+        // 0 = oauth (default), 1 = probe
+        const source = this._settings.get_enum('usage-source');
+        if (source === 1) {
+            this._fetchViaProbe(token);
+        } else {
+            this._fetchViaOauth(token);
+        }
+    }
 
-        message.request_headers.append('Cookie', `sessionKey=${sessionKey}`);
-        message.request_headers.append('User-Agent', 'Mozilla/5.0 (X11; Linux x86_64) GNOME Shell Extension');
+    _fetchViaOauth(token) {
+        const url = 'https://api.anthropic.com/api/oauth/usage';
+        const message = Soup.Message.new('GET', url);
+        message.request_headers.append('Authorization', `Bearer ${token}`);
+        message.request_headers.append('anthropic-beta', 'oauth-2025-04-20');
 
         this._session.send_and_read_async(
             message,
@@ -558,30 +577,112 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             (session, result) => {
                 try {
                     const bytes = session.send_and_read_finish(result);
-
-                    if (message.status_code !== 200) {
-                        const errorMsg = `HTTP ${message.status_code}`;
-                        console.error(`Claude Usage: ${errorMsg}`);
-                        this._setError(errorMsg);
-                        return;
-                    }
+                    if (this._handleHttpError(message)) return;
 
                     const decoder = new TextDecoder('utf-8');
                     const text = decoder.decode(bytes.get_data());
-                    this._usageData = JSON.parse(text);
-                    if (DEBUG) {
-                        console.log('Claude Usage API response:', text);
-                    }
-                    this._lastUpdated = new Date();
-                    this._lastError = null;
-                    this._updateDisplay();
+                    if (DEBUG) console.log('Claude Usage OAuth response:', text);
+                    this._onUsageData(JSON.parse(text));
                 } catch (e) {
-                    const errorMsg = e.message || 'Unknown error';
                     console.error('Claude Usage: Failed to fetch data', e);
-                    this._setError(errorMsg);
+                    this._setError(e.message || 'Unknown error');
                 }
             }
         );
+    }
+
+    _fetchViaProbe(token) {
+        const url = 'https://api.anthropic.com/v1/messages';
+        const body = JSON.stringify({
+            model: 'claude-haiku-4-5',
+            max_tokens: 1,
+            // OAuth tokens require the Claude Code system prompt or the
+            // request is rejected. Keep the prompt input trivially small.
+            system: "You are Claude Code, Anthropic's official CLI for Claude.",
+            messages: [{ role: 'user', content: 'x' }],
+        });
+
+        const message = Soup.Message.new('POST', url);
+        message.request_headers.append('Authorization', `Bearer ${token}`);
+        message.request_headers.append('anthropic-beta', 'oauth-2025-04-20');
+        message.request_headers.append('anthropic-version', '2023-06-01');
+        message.set_request_body_from_bytes(
+            'application/json',
+            GLib.Bytes.new(new TextEncoder().encode(body))
+        );
+
+        this._session.send_and_read_async(
+            message,
+            GLib.PRIORITY_DEFAULT,
+            null,
+            (session, result) => {
+                try {
+                    session.send_and_read_finish(result);
+                    if (this._handleHttpError(message)) return;
+
+                    const data = this._parseUnifiedRatelimitHeaders(message.response_headers);
+                    if (!data.five_hour && !data.seven_day) {
+                        this._setError('Probe returned no usage headers');
+                        return;
+                    }
+                    if (DEBUG) console.log('Claude Usage probe headers parsed:', JSON.stringify(data));
+                    this._onUsageData(data);
+                } catch (e) {
+                    console.error('Claude Usage: Failed to probe', e);
+                    this._setError(e.message || 'Unknown error');
+                }
+            }
+        );
+    }
+
+    _parseUnifiedRatelimitHeaders(headers) {
+        const data = {};
+        const get = (k) => headers.get_one(`anthropic-ratelimit-unified-${k}`);
+        const buildBucket = (utilKey, resetKey) => {
+            const util = get(utilKey);
+            const reset = get(resetKey);
+            if (util === null || reset === null) return undefined;
+            return {
+                utilization: parseFloat(util) * 100,
+                resets_at: new Date(parseInt(reset, 10) * 1000).toISOString(),
+            };
+        };
+        const fiveHour = buildBucket('5h-utilization', '5h-reset');
+        const sevenDay = buildBucket('7d-utilization', '7d-reset');
+        if (fiveHour) data.five_hour = fiveHour;
+        if (sevenDay) data.seven_day = sevenDay;
+        return data;
+    }
+
+    _handleHttpError(message) {
+        if (message.status_code === 429) {
+            const retryAfter = message.response_headers.get_one('retry-after');
+            const seconds = retryAfter ? parseInt(retryAfter, 10) : 300;
+            this._rateLimitedUntil = new Date(Date.now() + seconds * 1000);
+            const h = this._rateLimitedUntil.getHours().toString().padStart(2, '0');
+            const m = this._rateLimitedUntil.getMinutes().toString().padStart(2, '0');
+            const errorMsg = `Rate limited until ${h}:${m}`;
+            console.error(`Claude Usage: ${errorMsg}`);
+            this._setError(errorMsg);
+            return true;
+        }
+        if (message.status_code !== 200) {
+            const errorMsg = message.status_code === 401
+                ? 'Token expired — run `claude auth login`'
+                : `HTTP ${message.status_code}`;
+            console.error(`Claude Usage: ${errorMsg}`);
+            this._setError(errorMsg);
+            return true;
+        }
+        return false;
+    }
+
+    _onUsageData(data) {
+        this._rateLimitedUntil = null;
+        this._usageData = data;
+        this._lastUpdated = new Date();
+        this._lastError = null;
+        this._updateDisplay();
     }
 
     _setError(errorMsg) {
@@ -640,6 +741,44 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._weeklyMenuItem.label.set_text(`Weekly: ${Math.round(weeklyUtil)}%`);
         this._weeklyResetMenuItem.label.set_text(`resets in ${this._formatTimeRemaining(weeklyResets)} at ${weeklyResetAbsolute}`);
 
+        // Rebuild dynamic items for extra usage types
+        for (const item of this._extraUsageItems)
+            item.destroy();
+        this._extraUsageItems = [];
+
+        const USAGE_NAMES = {
+            seven_day_opus: 'Opus (7-day)',
+            seven_day_sonnet: 'Sonnet (7-day)',
+            seven_day_cowork: 'Claude Cowork (7-day)',
+            seven_day_oauth_apps: 'OAuth Apps (7-day)',
+            seven_day_omelette: 'Claude Design (7-day)',
+            tangelo: 'Tangelo',
+            iguana_necktie: 'Iguana Necktie',
+            omelette_promotional: 'Claude Design Promo',
+        };
+        const SKIP_KEYS = new Set(['five_hour', 'seven_day', 'extra_usage']);
+        const insertPos = this.menu._getMenuItems().indexOf(this._lastUpdatedMenuItem);
+
+        for (const [key, data] of Object.entries(this._usageData)) {
+            if (SKIP_KEYS.has(key) || !data || data.utilization === null || data.utilization === undefined)
+                continue;
+            const name = USAGE_NAMES[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            const item = new PopupMenu.PopupMenuItem(`${name}: ${Math.round(data.utilization)}%`);
+            item.setSensitive(false);
+            this.menu.addMenuItem(item, insertPos + this._extraUsageItems.length);
+            this._extraUsageItems.push(item);
+        }
+
+        const extra = this._usageData.extra_usage;
+        if (extra?.is_enabled && extra.utilization !== null) {
+            const item = new PopupMenu.PopupMenuItem(
+                `Extra: ${Math.round(extra.utilization)}% (${extra.used_credits}/${extra.monthly_limit} ${extra.currency})`
+            );
+            item.setSensitive(false);
+            this.menu.addMenuItem(item, insertPos + this._extraUsageItems.length);
+            this._extraUsageItems.push(item);
+        }
+
         // Update last updated timestamp
         if (this._lastUpdated) {
             const now = new Date();
@@ -696,6 +835,10 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         if (this._fileMonitor) {
             this._fileMonitor.cancel();
             this._fileMonitor = null;
+        }
+        if (this._sourceChangedId) {
+            this._settings.disconnect(this._sourceChangedId);
+            this._sourceChangedId = null;
         }
         super.destroy();
     }

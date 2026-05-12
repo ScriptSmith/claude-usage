@@ -46,7 +46,8 @@ glib-compile-schemas ~/.local/share/gnome-shell/extensions/claude-usage@local/sc
 
 ### Extension (extension.js)
 - `ClaudeUsageIndicator` class extends `PanelMenu.Button` - the main panel widget
-- Uses `Soup.Session` for HTTP requests to Claude API (`/api/organizations/{orgId}/usage`)
+- Uses `Soup.Session` for HTTP requests to the Anthropic OAuth usage API (`api.anthropic.com/api/oauth/usage`)
+- Credentials read automatically from `~/.claude/.credentials.json` via `credentials.js`; no manual setup needed
 - Uses `Gio.FileMonitor` to watch `~/.claude/session-state.json` for real-time updates
 - Settings stored via GSettings schema in `schemas/` directory
 - Countdown timers update every second; API polling configurable (default 10 minutes)
@@ -62,9 +63,10 @@ glib-compile-schemas ~/.local/share/gnome-shell/extensions/claude-usage@local/sc
 
 ### Key Files
 - `extension.js` - Main extension code with panel indicator
+- `credentials.js` - Shared module that reads `~/.claude/.credentials.json` and returns the OAuth token; imported by both `extension.js` and `prefs.js`
 - `prefs.js` - Adw-based preferences UI
 - `claude-session-hook.py` - Python hook that writes session state
-- `schemas/*.xml` - GSettings schema for credentials and settings
+- `schemas/*.xml` - GSettings schema for settings (update interval)
 - `stylesheet.css` - Warning/danger color classes for usage thresholds
 
 ### State File Format (~/.claude/session-state.json)

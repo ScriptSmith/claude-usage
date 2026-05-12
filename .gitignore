@@ -1,6 +1,9 @@
 # Compiled GSettings schemas
 schemas/gschemas.compiled
 
+# Packed extension bundle
+*.shell-extension.zip
+
 # Editor backups
 *~
 *.swp
