@@ -88,7 +88,7 @@ The extension tracks Claude Code sessions via hooks that write state to `~/.clau
 
 #### Make the hook script executable:
 ```bash
-chmod +x /path/to/claude-usage/claude-session-hook.py
+chmod +x ~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py
 ```
 
 #### Add hooks to your Claude Code settings:
@@ -103,7 +103,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -113,7 +113,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -123,7 +123,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -134,7 +134,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -145,7 +145,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -155,7 +155,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -165,7 +165,7 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/claude-usage/claude-session-hook.py"
+            "command": "~/.local/share/gnome-shell/extensions/claude-usage@local/claude-session-hook.py"
           }
         ]
       }
@@ -174,9 +174,17 @@ Edit `~/.claude/settings.json` and merge in the hooks configuration:
 }
 ```
 
-Replace `/path/to/claude-usage/` with the actual path where you cloned the repository.
+Run `./install.sh` first — it installs the hook script to the extension directory and prints the exact path to use.
 
 A complete hooks configuration is also available in `hooks-config.json` for reference.
+
+## Packing for Distribution
+
+```bash
+./pack.sh
+```
+
+Produces `claude-usage@local.shell-extension.zip` ready for upload to [extensions.gnome.org](https://extensions.gnome.org) or manual installation via `gnome-extensions install`.
 
 ## How It Works
 
@@ -218,7 +226,8 @@ claude-usage/
 ├── stylesheet.css        # Extension styles
 ├── schemas/              # GSettings schemas
 │   └── org.gnome.shell.extensions.claude-usage.gschema.xml
-├── install.sh            # Installation script
+├── install.sh            # Install extension + hook script locally
+├── pack.sh               # Pack extension as .zip for distribution
 ├── claude-session-hook.py   # Claude Code hook script
 ├── hooks-config.json     # Example hooks configuration
 └── README.md             # This file
