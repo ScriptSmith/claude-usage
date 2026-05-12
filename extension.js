@@ -87,6 +87,13 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._setupSessionStateMonitor();
         this._loadSessionState();
         this._startUpdateLoop();
+
+        // Switching source must clear the cooldown from the previous endpoint
+        // so the new one isn't blocked by a stale rate-limit deadline.
+        this._sourceChangedId = this._settings.connect('changed::usage-source', () => {
+            this._rateLimitedUntil = null;
+            this._fetchUsageData(true);
+        });
     }
 
     _buildMenu() {
@@ -548,9 +555,18 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             return;
         }
 
+        // 0 = oauth (default), 1 = probe
+        const source = this._settings.get_enum('usage-source');
+        if (source === 1) {
+            this._fetchViaProbe(token);
+        } else {
+            this._fetchViaOauth(token);
+        }
+    }
+
+    _fetchViaOauth(token) {
         const url = 'https://api.anthropic.com/api/oauth/usage';
         const message = Soup.Message.new('GET', url);
-
         message.request_headers.append('Authorization', `Bearer ${token}`);
         message.request_headers.append('anthropic-beta', 'oauth-2025-04-20');
 
@@ -561,46 +577,112 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             (session, result) => {
                 try {
                     const bytes = session.send_and_read_finish(result);
-
-                    if (message.status_code === 429) {
-                        const retryAfter = message.response_headers.get_one('retry-after');
-                        const seconds = retryAfter ? parseInt(retryAfter, 10) : 300;
-                        this._rateLimitedUntil = new Date(Date.now() + seconds * 1000);
-                        const h = this._rateLimitedUntil.getHours().toString().padStart(2, '0');
-                        const m = this._rateLimitedUntil.getMinutes().toString().padStart(2, '0');
-                        const errorMsg = `Rate limited until ${h}:${m}`;
-                        console.error(`Claude Usage: ${errorMsg}`);
-                        this._setError(errorMsg);
-                        return;
-                    }
-
-                    if (message.status_code !== 200) {
-                        const errorMsg = message.status_code === 401
-                            ? 'Token expired — run `claude auth login`'
-                            : `HTTP ${message.status_code}`;
-                        console.error(`Claude Usage: ${errorMsg}`);
-                        this._setError(errorMsg);
-                        return;
-                    }
-
-                    this._rateLimitedUntil = null;
+                    if (this._handleHttpError(message)) return;
 
                     const decoder = new TextDecoder('utf-8');
                     const text = decoder.decode(bytes.get_data());
-                    this._usageData = JSON.parse(text);
-                    if (DEBUG) {
-                        console.log('Claude Usage API response:', text);
-                    }
-                    this._lastUpdated = new Date();
-                    this._lastError = null;
-                    this._updateDisplay();
+                    if (DEBUG) console.log('Claude Usage OAuth response:', text);
+                    this._onUsageData(JSON.parse(text));
                 } catch (e) {
-                    const errorMsg = e.message || 'Unknown error';
                     console.error('Claude Usage: Failed to fetch data', e);
-                    this._setError(errorMsg);
+                    this._setError(e.message || 'Unknown error');
                 }
             }
         );
+    }
+
+    _fetchViaProbe(token) {
+        const url = 'https://api.anthropic.com/v1/messages';
+        const body = JSON.stringify({
+            model: 'claude-haiku-4-5',
+            max_tokens: 1,
+            // OAuth tokens require the Claude Code system prompt or the
+            // request is rejected. Keep the prompt input trivially small.
+            system: "You are Claude Code, Anthropic's official CLI for Claude.",
+            messages: [{ role: 'user', content: 'x' }],
+        });
+
+        const message = Soup.Message.new('POST', url);
+        message.request_headers.append('Authorization', `Bearer ${token}`);
+        message.request_headers.append('anthropic-beta', 'oauth-2025-04-20');
+        message.request_headers.append('anthropic-version', '2023-06-01');
+        message.set_request_body_from_bytes(
+            'application/json',
+            GLib.Bytes.new(new TextEncoder().encode(body))
+        );
+
+        this._session.send_and_read_async(
+            message,
+            GLib.PRIORITY_DEFAULT,
+            null,
+            (session, result) => {
+                try {
+                    session.send_and_read_finish(result);
+                    if (this._handleHttpError(message)) return;
+
+                    const data = this._parseUnifiedRatelimitHeaders(message.response_headers);
+                    if (!data.five_hour && !data.seven_day) {
+                        this._setError('Probe returned no usage headers');
+                        return;
+                    }
+                    if (DEBUG) console.log('Claude Usage probe headers parsed:', JSON.stringify(data));
+                    this._onUsageData(data);
+                } catch (e) {
+                    console.error('Claude Usage: Failed to probe', e);
+                    this._setError(e.message || 'Unknown error');
+                }
+            }
+        );
+    }
+
+    _parseUnifiedRatelimitHeaders(headers) {
+        const data = {};
+        const get = (k) => headers.get_one(`anthropic-ratelimit-unified-${k}`);
+        const buildBucket = (utilKey, resetKey) => {
+            const util = get(utilKey);
+            const reset = get(resetKey);
+            if (util === null || reset === null) return undefined;
+            return {
+                utilization: parseFloat(util) * 100,
+                resets_at: new Date(parseInt(reset, 10) * 1000).toISOString(),
+            };
+        };
+        const fiveHour = buildBucket('5h-utilization', '5h-reset');
+        const sevenDay = buildBucket('7d-utilization', '7d-reset');
+        if (fiveHour) data.five_hour = fiveHour;
+        if (sevenDay) data.seven_day = sevenDay;
+        return data;
+    }
+
+    _handleHttpError(message) {
+        if (message.status_code === 429) {
+            const retryAfter = message.response_headers.get_one('retry-after');
+            const seconds = retryAfter ? parseInt(retryAfter, 10) : 300;
+            this._rateLimitedUntil = new Date(Date.now() + seconds * 1000);
+            const h = this._rateLimitedUntil.getHours().toString().padStart(2, '0');
+            const m = this._rateLimitedUntil.getMinutes().toString().padStart(2, '0');
+            const errorMsg = `Rate limited until ${h}:${m}`;
+            console.error(`Claude Usage: ${errorMsg}`);
+            this._setError(errorMsg);
+            return true;
+        }
+        if (message.status_code !== 200) {
+            const errorMsg = message.status_code === 401
+                ? 'Token expired — run `claude auth login`'
+                : `HTTP ${message.status_code}`;
+            console.error(`Claude Usage: ${errorMsg}`);
+            this._setError(errorMsg);
+            return true;
+        }
+        return false;
+    }
+
+    _onUsageData(data) {
+        this._rateLimitedUntil = null;
+        this._usageData = data;
+        this._lastUpdated = new Date();
+        this._lastError = null;
+        this._updateDisplay();
     }
 
     _setError(errorMsg) {
@@ -753,6 +835,10 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         if (this._fileMonitor) {
             this._fileMonitor.cancel();
             this._fileMonitor = null;
+        }
+        if (this._sourceChangedId) {
+            this._settings.disconnect(this._sourceChangedId);
+            this._sourceChangedId = null;
         }
         super.destroy();
     }

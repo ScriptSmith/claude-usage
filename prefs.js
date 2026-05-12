@@ -51,6 +51,20 @@ export default class ClaudeUsagePreferences extends ExtensionPreferences {
             settings.set_int('update-interval', updateIntervalRow.get_value());
         });
         settingsGroup.add(updateIntervalRow);
+
+        const sourceModel = new Gtk.StringList();
+        sourceModel.append('OAuth usage endpoint (/api/oauth/usage)');
+        sourceModel.append('Probe message (POST /v1/messages, reads response headers)');
+        const sourceRow = new Adw.ComboRow({
+            title: 'Usage Source',
+            subtitle: 'OAuth is free but heavily rate-limited. Probe costs ~1 token per fetch but rarely hits limits.',
+            model: sourceModel,
+            selected: settings.get_enum('usage-source'),
+        });
+        sourceRow.connect('notify::selected', () => {
+            settings.set_enum('usage-source', sourceRow.get_selected());
+        });
+        settingsGroup.add(sourceRow);
     }
 
     _credentialStatus() {

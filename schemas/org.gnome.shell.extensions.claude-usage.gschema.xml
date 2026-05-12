@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
+  <enum id="org.gnome.shell.extensions.claude-usage.usage-source">
+    <value nick="oauth" value="0"/>
+    <value nick="probe" value="1"/>
+  </enum>
   <schema id="org.gnome.shell.extensions.claude-usage" path="/org/gnome/shell/extensions/claude-usage/">
     <key name="update-interval" type="i">
       <default>10</default>
       <summary>Update Interval</summary>
       <description>How often to fetch usage data from the API (in minutes)</description>
       <range min="1" max="60"/>
+    </key>
+    <key name="usage-source" enum="org.gnome.shell.extensions.claude-usage.usage-source">
+      <default>'oauth'</default>
+      <summary>Usage data source</summary>
+      <description>How to obtain usage stats. 'oauth' calls /api/oauth/usage (no token cost, tight rate limit). 'probe' POSTs a 1-token /v1/messages and reads anthropic-ratelimit-unified-* response headers (rarely rate-limited, costs ~1 token/fetch).</description>
     </key>
   </schema>
 </schemalist>
